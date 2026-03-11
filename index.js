@@ -91,7 +91,10 @@ async function handleEvent(event) {
     }
   }
 }
-
+// 加入這段，讓瀏覽器連到首頁時顯示訊息
+app.get('/', (req, res) => {
+    res.send('LINE Bot Server is Running!');
+});
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
