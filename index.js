@@ -1,3 +1,5 @@
+// 在 require 下方加入，測試環境變數是否讀得到
+console.log("Supabase URL Check:", process.env.SUPABASE_URL ? "OK" : "MISSING");
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
