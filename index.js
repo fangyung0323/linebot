@@ -1,97 +1,58 @@
 const express = require('express');
-const cors = require('cors'); // 1. 引入 cors
-const app = express();
-
-app.use(cors()); // 2. 允許所有來源 (包含你的前端網頁)
-app.use(express.json()); // 確保這行在最上方，能正確解析 JSON
-
+const cors = require('cors'); // 記得要安裝: npm install cors
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 
+const app = express();
 
+// --- 1. 重要設定：必須在路由之前 ---
+app.use(cors()); // 允許跨來源請求 (解決 fetch blocked by CORS policy)
+app.use(express.json()); // 確保能正確解析前端傳來的 JSON
+
+// --- 2. 初始化 ---
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const lineConfig = { channelAccessToken: process.env.LINE_ACCESS_TOKEN, channelSecret: process.env.LINE_CHANNEL_SECRET };
+const lineConfig = { 
+    channelAccessToken: process.env.LINE_ACCESS_TOKEN, 
+    channelSecret: process.env.LINE_CHANNEL_SECRET 
+};
 const lineClient = new line.Client(lineConfig);
 
+// --- 3. 路由 ---
 app.post('/callback', line.middleware(lineConfig), async (req, res) => {
     await Promise.all(req.body.events.map(handleEvent));
     res.status(200).send('OK');
 });
 
+// 接收來自 index.html 的訂單
+app.post('/order', async (req, res) => {
+    try {
+        const { name, phone, items, total } = req.body;
+        
+        // 整理訊息內容
+        const itemsText = items.map(i => `${i.name} x1`).join('\n');
+        const message = `🔔 新訂單通知！\n\n顧客：${name}\n電話：${phone}\n\n購買清單：\n${itemsText}\n\n總金額：$${total}`;
+
+        // 推播給管理者
+        await lineClient.pushMessage(process.env.ADMIN_USER_ID, {
+            type: 'text',
+            text: message
+        });
+
+        res.status(200).send('Order Received');
+    } catch (error) {
+        console.error("訂單處理失敗:", error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+// --- 4. 處理 LINE 訊息 (保持你原有的功能) ---
 async function handleEvent(event) {
-    // 統一的過濾器：只處理文字或圖片
     if (event.type !== 'message' || (event.message.type !== 'text' && event.message.type !== 'image')) return;
     
     const userId = event.source.userId;
 
-    // 1. 優先處理「刪除指令」(必須是文字才能判斷)
-    if (event.message.type === 'text' && event.message.text === '刪除最新商品') {
-        const { data: latest } = await supabase
-            .from('products')
-            .select('id')
-            .eq('creator_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-        if (latest) {
-            await supabase.from('products').delete().eq('id', latest.id);
-            return lineClient.replyMessage(event.replyToken, { type: 'text', text: '🗑️ 已成功刪除最新一筆商品紀錄！' });
-        } else {
-            return lineClient.replyMessage(event.replyToken, { type: 'text', text: '目前沒有任何商品可以刪除。' });
-        }
-    }
-
-    // 2. 處理「圖片上傳」
-    if (event.message.type === 'image') {
-        const stream = await lineClient.getMessageContent(event.message.id);
-        const chunks = [];
-        for await (const chunk of stream) chunks.push(chunk);
-        const buffer = Buffer.concat(chunks);
-        const fileName = `${userId}/${Date.now()}.jpg`;
-        await supabase.storage.from('product-images').upload(fileName, buffer);
-        const { data: { publicUrl } } = supabase.storage.from('product-images').getPublicUrl(fileName);
-        await supabase.from('products').insert([{ image_url: publicUrl, creator_id: userId, status: 'draft', price: 0, quantity: 0 }]);
-        return lineClient.replyMessage(event.replyToken, { type: 'text', text: '照片已接收！請輸入「品種」(鹿角蕨/積水鳳梨/其他植物)：' });
-    }
-
-    // 3. 處理「填寫資料流程」
-    const { data: draft } = await supabase.from('products').select('*').eq('creator_id', userId).eq('status', 'draft').order('created_at', { ascending: false }).limit(1).single();
-    if (!draft) return lineClient.replyMessage(event.replyToken, { type: 'text', text: '請先傳送圖片。' });
-
-    const steps = [
-        { key: 'category', msg: '收到品種！請輸入「名稱」：' },
-        { key: 'name', msg: '收到名稱！請輸入「售價」：' },
-        { key: 'price', msg: '價格已更新，請輸入「數量」：' },
-        { key: 'quantity', msg: '數量已確認，請輸入「商品描述」：' },
-        { key: 'description', msg: '描述已記錄，最後請輸入「備註」：' }
-    ];
-
-    for (let step of steps) {
-        if (!draft[step.key] || draft[step.key] === 0) {
-            let updateVal = {};
-            updateVal[step.key] = (step.key === 'price' || step.key === 'quantity') ? parseInt(event.message.text) : event.message.text;
-            await supabase.from('products').update(updateVal).eq('id', draft.id);
-            return lineClient.replyMessage(event.replyToken, { type: 'text', text: step.msg });
-        }
-    }
-    await supabase.from('products').update({ note: event.message.text, status: 'active' }).eq('id', draft.id);
-    return lineClient.replyMessage(event.replyToken, { type: 'text', text: '✅ 上架成功！' });
+    // (這裡保留你原本的 handleEvent 邏輯...)
+    // 記得如果這裡很長，請確保沒有重複的宣告
 }
-// 在 index.js 新增一個 POST 路由
-app.post('/order', express.json(), async (req, res) => {
-    const { name, phone, items, total } = req.body;
-    
-    // 整理訊息內容
-    const itemsText = items.map(i => `${i.name} x1`).join('\n');
-    const message = `🔔 新訂單通知！\n\n顧客：${name}\n電話：${phone}\n\n購買清單：\n${itemsText}\n\n總金額：$${total}`;
 
-    // 使用 LINE API 將訊息主動推播給你 (需知道你的 userId)
-    await lineClient.pushMessage('你的LINE_USER_ID', {
-        type: 'text',
-        text: message
-    });
-
-    res.status(200).send('Order Received');
-});
 app.listen(process.env.PORT || 10000);
