@@ -72,5 +72,20 @@ async function handleEvent(event) {
     await supabase.from('products').update({ note: event.message.text, status: 'active' }).eq('id', draft.id);
     return lineClient.replyMessage(event.replyToken, { type: 'text', text: '✅ 上架成功！' });
 }
+// 在 index.js 新增一個 POST 路由
+app.post('/order', express.json(), async (req, res) => {
+    const { name, phone, items, total } = req.body;
+    
+    // 整理訊息內容
+    const itemsText = items.map(i => `${i.name} x1`).join('\n');
+    const message = `🔔 新訂單通知！\n\n顧客：${name}\n電話：${phone}\n\n購買清單：\n${itemsText}\n\n總金額：$${total}`;
 
+    // 使用 LINE API 將訊息主動推播給你 (需知道你的 userId)
+    await lineClient.pushMessage('你的LINE_USER_ID', {
+        type: 'text',
+        text: message
+    });
+
+    res.status(200).send('Order Received');
+});
 app.listen(process.env.PORT || 10000);
