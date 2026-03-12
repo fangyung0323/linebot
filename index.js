@@ -11,6 +11,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 const app = express();
 app.use(cors());
+app.get('/', (req, res) => {
+    res.send('Server is running and ready for Webhook & Orders!');
+});
 app.use(bodyParser.json());
 
 // 1. 訂單 Email 發送邏輯
