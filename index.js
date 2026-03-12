@@ -56,3 +56,23 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`伺服器運行中，監聽 port: ${PORT}`);
 });
+// ... 承接之前的 index.js ...
+
+// 處理 LINE Bot 的訊息回傳 (Webhook)
+app.post('/webhook', async (req, res) => {
+    const events = req.body.events;
+    
+    for (const event of events) {
+        if (event.type === 'message' && event.message.type === 'image') {
+            // 這裡原本是處理 LINE 圖片的邏輯
+            // 確保你在這裡寫入 Supabase 時，補上 creator_id: event.source.userId
+            await supabase.from('products').insert([{
+                name: '來自LINE的植物',
+                image_url: '...',
+                creator_id: event.source.userId, // 確保這裡有值，就不會報 null 錯誤
+                status: 'active'
+            }]);
+        }
+    }
+    res.status(200).send('OK');
+});
