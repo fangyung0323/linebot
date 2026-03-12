@@ -46,6 +46,16 @@ ${itemList}
 });
 
 // 2. LINE Bot Webhook (處理圖片上傳)
+// 1. 處理 LINE Webhook 的驗證 (回應 LINE 的測試)
+app.get('/webhook', (req, res) => {
+    res.status(200).send('Webhook is active!');
+});
+
+// 2. 處理 LINE 的正式推送 (保持原本的 POST)
+app.post('/webhook', async (req, res) => {
+    // ... 原本處理圖片的邏輯 ...
+    res.status(200).send('OK');
+});
 app.post('/webhook', async (req, res) => {
     const events = req.body.events;
     if (!events) return res.status(200).send('OK');
