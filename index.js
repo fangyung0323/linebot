@@ -11,36 +11,32 @@ app.post('/callback', line.middleware(lineConfig), async (req, res) => {
     await Promise.all(req.body.events.map(handleEvent));
     res.status(200).send('OK');
 });
+
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') return;
-  const userId = event.source.userId;
-
-  // --- 新增：刪除指令 ---
-  if (event.message.text === '刪除最新商品') {
-    // 找出該使用者最新的那一筆資料（不論是 draft 還是 active）
-    const { data: latest } = await supabase
-      .from('products')
-      .select('id')
-      .eq('creator_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (latest) {
-      await supabase.from('products').delete().eq('id', latest.id);
-      return lineClient.replyMessage(event.replyToken, { type: 'text', text: '🗑️ 已成功刪除最新一筆商品紀錄！' });
-    } else {
-      return lineClient.replyMessage(event.replyToken, { type: 'text', text: '目前沒有任何商品可以刪除。' });
-    }
-  }
-  // --- 刪除指令結束 ---
-
-  // ...接下來才是原本的「處理圖片」與「處理填寫資料」邏輯
-}
-async function handleEvent(event) {
-    if (event.type !== 'message' || event.message.type !== 'text' && event.message.type !== 'image') return;
+    // 統一的過濾器：只處理文字或圖片
+    if (event.type !== 'message' || (event.message.type !== 'text' && event.message.type !== 'image')) return;
+    
     const userId = event.source.userId;
 
+    // 1. 優先處理「刪除指令」(必須是文字才能判斷)
+    if (event.message.type === 'text' && event.message.text === '刪除最新商品') {
+        const { data: latest } = await supabase
+            .from('products')
+            .select('id')
+            .eq('creator_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (latest) {
+            await supabase.from('products').delete().eq('id', latest.id);
+            return lineClient.replyMessage(event.replyToken, { type: 'text', text: '🗑️ 已成功刪除最新一筆商品紀錄！' });
+        } else {
+            return lineClient.replyMessage(event.replyToken, { type: 'text', text: '目前沒有任何商品可以刪除。' });
+        }
+    }
+
+    // 2. 處理「圖片上傳」
     if (event.message.type === 'image') {
         const stream = await lineClient.getMessageContent(event.message.id);
         const chunks = [];
@@ -53,6 +49,7 @@ async function handleEvent(event) {
         return lineClient.replyMessage(event.replyToken, { type: 'text', text: '照片已接收！請輸入「品種」(鹿角蕨/積水鳳梨/其他植物)：' });
     }
 
+    // 3. 處理「填寫資料流程」
     const { data: draft } = await supabase.from('products').select('*').eq('creator_id', userId).eq('status', 'draft').order('created_at', { ascending: false }).limit(1).single();
     if (!draft) return lineClient.replyMessage(event.replyToken, { type: 'text', text: '請先傳送圖片。' });
 
