@@ -8,7 +8,7 @@ app.use(express.json()); // 確保這行在最上方，能正確解析 JSON
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 
-const app = express();
+
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const lineConfig = { channelAccessToken: process.env.LINE_ACCESS_TOKEN, channelSecret: process.env.LINE_CHANNEL_SECRET };
 const lineClient = new line.Client(lineConfig);
