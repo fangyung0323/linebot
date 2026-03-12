@@ -1,4 +1,10 @@
 const express = require('express');
+const cors = require('cors'); // 1. 引入 cors
+const app = express();
+
+app.use(cors()); // 2. 允許所有來源 (包含你的前端網頁)
+app.use(express.json()); // 確保這行在最上方，能正確解析 JSON
+
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
 
