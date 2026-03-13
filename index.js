@@ -15,6 +15,33 @@ const userState = {}; // 記憶體狀態儲存
 app.post('/order', async (req, res) => {
     try {
         const { name, phone, email, items, total } = req.body;
+
+        // 1. 遍歷購物車商品並更新資料庫庫存
+        for (const item of items) {
+            // 先取得目前該商品的剩餘數量
+            const { data: product, error: fetchError } = await supabase
+                .from('products')
+                .select('quantity')
+                .eq('id', item.id)
+                .single();
+
+            if (fetchError || !product) throw new Error(`找不到商品: ${item.name}`);
+
+            const newQuantity = product.quantity - item.quantity;
+            
+            // 如果庫存不足，則中斷訂單 (防呆機制)
+            if (newQuantity < 0) throw new Error(`${item.name} 庫存不足`);
+
+            // 更新資料庫
+            const { error: updateError } = await supabase
+                .from('products')
+                .update({ quantity: newQuantity })
+                .eq('id', item.id);
+
+            if (updateError) throw updateError;
+        }
+
+        // 2. 原本的 Line 通知邏輯
         const itemList = items.map(i => `${i.name} x ${i.quantity} ($${i.price * i.quantity})`).join('\n');
         const message = `🌿 新訂單通知！\n👤 ${name}\n📞 ${phone}\n📧 ${email}\n🛒 內容：\n${itemList}\n💰 總金額：$${total}`;
         
@@ -22,8 +49,12 @@ app.post('/order', async (req, res) => {
             { messages: [{ type: 'text', text: message }] },
             { headers: { 'Authorization': `Bearer ${process.env.LINE_ACCESS_TOKEN}` } }
         );
+
         res.status(200).send({ status: 'success' });
-    } catch (error) { res.status(500).send({ status: 'error' }); }
+    } catch (error) {
+        console.error("訂單處理錯誤:", error.message);
+        res.status(500).send({ status: 'error', message: error.message });
+    }
 });
 
 // 2. LINE Webhook 完整邏輯
