@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌿 人生植物店 · 植感購物</title>
+    <!-- supabase JS -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
+    <style>
+        /* 您的原本 CSS 保持不變 */
+        :root { --primary: #2d5a27; --accent: #d4a373; }
+        body { font-family: sans-serif; background: #fdfdfd; padding: 20px; }
+        h1 { text-align: center; color: var(--primary); }
+        .filter-container { text-align: center; margin: 20px 0; }
+        .filter-btn { background: white; border: 1px solid var(--primary); color: var(--primary); padding: 8px 16px; margin: 5px; cursor: pointer; border-radius: 20px; }
+        .filter-btn.active { background: var(--primary); color: white; }
+        #product-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; max-width: 1000px; margin: 0 auto; }
+        .product-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
+        .btn-add { background: var(--primary); color: white; border: none; padding: 10px; width: 100%; border-radius: 8px; cursor: pointer; }
+        #cart-section { max-width: 500px; margin: 50px auto; padding: 25px; border-radius: 15px; border: 1px solid #ddd; }
+        .form-input { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+
+    <h1>🌿 人生植物店</h1>
+
+    <div class="filter-container">
+        <button class="filter-btn active" onclick="filterProducts('全部', this)">全部</button>
+        <button class="filter-btn" onclick="filterProducts('鹿角蕨', this)">鹿角蕨</button>
+        <button class="filter-btn" onclick="filterProducts('積水鳳梨', this)">積水鳳梨</button>
+        <button class="filter-btn" onclick="filterProducts('其他植物', this)">其他植物</button>
+    </div>
+      
+    <div id="product-list">載入商品中...</div>
+
+    <div id="cart-section">
+        <h3>🛒 購物清單</h3>
+        <ul id="cart-items"></ul>
+        <p>總金額：$ <span id="total-price">0</span></p>
+        <input type="text" id="cust-name" class="form-input" placeholder="姓名">
+        <input type="text" id="cust-phone" class="form-input" placeholder="電話">
+        <input type="email" id="cust-email" class="form-input" placeholder="Email">
+        <button class="btn-add" onclick="submitOrder()">送出訂單</button>
+    </div>
+
+    <script>
+        // ========== 重點修改：從 Render 環境變數讀取 ==========
+        // 在 Render 的 Environment Variables 中設定：
+        // VITE_SUPABASE_URL = https://your-project.supabase.co
+        // VITE_SUPABASE_ANON_KEY = your-anon-key
+        
+        // 方法1：使用 Render 的環境變數（如果 Render 有設定）
+        const SUPABASE_URL = window.SUPABASE_URL || '{{ .VITE_SUPABASE_URL }}';
+        const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '{{ .VITE_SUPABASE_ANON_KEY }}';
+        
+        // 方法2：直接在這裡設定（但不建議，因為會暴露在金鑰在程式碼中）
+        // const SUPABASE_URL = 'https://您的專案.supabase.co';
+        // const SUPABASE_ANON_KEY = '您的anon金鑰';
+        
+        // 方法3：從全局變數讀取（可以在 Render 的靜態站台設定）
+        // const SUPABASE_URL = window.env?.SUPABASE_URL || '預設值';
+        // const SUPABASE_ANON_KEY = window.env?.SUPABASE_ANON_KEY || '預設值';
+        
+        console.log('Supabase URL:', SUPABASE_URL); // 確認有讀到
+        
+        // 初始化 Supabase
+        const mySupabase = supabase.createClient(
+            SUPABASE_URL, 
+            SUPABASE_ANON_KEY,
+            {
+                auth: {
+                    persistSession: false,
+                    detectSessionInUrl: false
+                }
+            }
+        );
+        
+        // ========== 購物車模組 ==========
+        window.Cart = (function() {
+            const STORAGE_KEY = 'myCart';
+            function getItems() {
+                try {
+                    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+                } catch {
+                    return [];
+                }
+            }
+            function saveItems(items) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+            }
+
+            return {
+                getItems() {
+                    return getItems();
+                },
+                addItem(id, name, price, maxStock) {
+                    const items = getItems();
+                    const existing = items.find(item => item.id === id);
+                    if (existing) {
+                        if (existing.quantity < maxStock) {
+                            existing.quantity += 1;
+                        } else {
+                            alert(`😢 ${name} 只剩 ${maxStock} 盆，無法再增加`);
+                            return;
+                        }
+                    } else {
+                        if (maxStock <= 0) {
+                            alert('暫時缺貨');
+                            return;
+                        }
+                        items.push({ id, name, price, quantity: 1 });
+                    }
+                    saveItems(items);
+                    updateCartUI();
+                },
+                removeItem(index) {
+                    const items = getItems();
+                    items.splice(index, 1);
+                    saveItems(items);
+                    updateCartUI();
+                },
+                clear() {
+                    localStorage.removeItem(STORAGE_KEY);
+                    updateCartUI();
+                },
+                getTotal() {
+                    return getItems().reduce((sum, i) => sum + (i.price * i.quantity), 0);
+                }
+            };
+        })();
+
+        let allProducts = [];
+
+        // ========== 改進的 fetchProducts 函數 ==========
+        async function fetchProducts() {
+            const listEl = document.getElementById('product-list');
+            
+            try {
+                // 檢查是否成功初始化
+                if (!SUPABASE_URL || SUPABASE_URL.includes('{{')) {
+                    listEl.innerHTML = `
+                        <div style="text-align: center; color: orange; grid-column: 1/-1;">
+                            ⚠️ 請在 Render 後台設定環境變數：<br>
+                            VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const { data, error } = await mySupabase
+                    .from('products')
+                    .select('*')
+                    .eq('status', 'active');
+                
+                if (error) {
+                    console.error('Supabase 錯誤:', error);
+                    listEl.innerHTML = `
+                        <div style="text-align: center; color: red; grid-column: 1/-1;">
+                            ❌ 資料庫錯誤：${error.message}<br>
+                            <small>請確認：1. RLS政策 2.表格結構</small>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                if (!data || data.length === 0) {
+                    listEl.innerHTML = `
+                        <div style="text-align: center; color: #666; grid-column: 1/-1;">
+                            🌱 目前沒有上架商品
+                        </div>
+                    `;
+                    allProducts = [];
+                    return;
+                }
+                
+                allProducts = data;
+                renderProducts(allProducts);
+                
+            } catch (err) {
+                console.error('例外錯誤:', err);
+                listEl.innerHTML = `
+                    <div style="text-align: center; color: red; grid-column: 1/-1;">
+                        ❌ 連線錯誤：${err.message}
+                    </div>
+                `;
+            }
+        }
+
+        function renderProducts(products) {
+            const list = document.getElementById('product-list');
+            const available = products.filter(p => p.quantity > 0);
+            
+            if (available.length === 0) {
+                list.innerHTML = '<div style="text-align: center; grid-column: 1/-1;">🌱 此分類目前無現貨</div>';
+                return;
+            }
+            
+            list.innerHTML = available.map(p => `
+                <div class="product-card">
+                    <img src="${p.image_url || 'https://via.placeholder.com/300x200?text=🌿'}" style="width:100%; height:180px; object-fit:cover; border-radius:8px;">
+                    <h3>${p.name}</h3>
+                    <p>$${p.price}</p>
+                    <small>庫存: ${p.quantity}</small>
+                    <button class="btn-add" onclick="Cart.addItem('${p.id}', '${p.name}', ${p.price}, ${p.quantity})">加入購物車</button>
+                </div>
+            `).join('');
+        }
+
+        function filterProducts(category, btn) {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderProducts(category === '全部' ? allProducts : allProducts.filter(p => p.category === category));
+        }
+
+        function updateCartUI() {
+            const list = document.getElementById('cart-items');
+            const items = Cart.getItems();
+            
+            if (items.length === 0) {
+                list.innerHTML = '<li style="list-style: none; text-align: center;">🛒 購物車空空的</li>';
+            } else {
+                list.innerHTML = items.map((p, i) => `
+                    <li>${p.name} x ${p.quantity} - $${p.price * p.quantity} 
+                    <button onclick="Cart.removeItem(${i})" style="color:red; border:none; background:none; cursor:pointer;">刪</button></li>
+                `).join('');
+            }
+            document.getElementById('total-price').innerText = Cart.getTotal();
+        }
+
+        async function submitOrder() {
+            const orderData = {
+                name: document.getElementById('cust-name').value,
+                phone: document.getElementById('cust-phone').value,
+                email: document.getElementById('cust-email').value,
+                items: Cart.getItems(),
+                total: Cart.getTotal()
+            };
+
+            if(!orderData.name || !orderData.phone || !orderData.email) {
+                alert('請填寫完整資訊');
+                return;
+            }
+            
+            if (orderData.items.length === 0) {
+                alert('購物車是空的');
+                return;
+            }
+
+            try {
+                const res = await fetch('https://linebot-oh5o.onrender.com/order', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(orderData)
+                });
+
+                if(res.ok) {
+                    alert('✅ 訂單已送出！');
+                    localStorage.removeItem('myCart');
+                    location.reload();
+                } else {
+                    alert('發送失敗');
+                }
+            } catch (err) {
+                alert('網路錯誤');
+                console.error(err);
+            }
+        }
+
+        // 啟動
+        fetchProducts();
+        updateCartUI();
+    </script>
+</body>
+</html>
